@@ -75,43 +75,43 @@ def run_crawler_df(start_url: str) -> pd.DataFrame | None:
 
 def main():
     """Main Streamlit application function."""
-    
+
     st.title("🌐 Advertools Hostname HTTP Status Reporter")
     st.markdown("Enter a starting URL to crawl links on the same domain and report their HTTP response codes.")
 
     # 1. Input Field
     domain = st.text_input(
-        "Enter the starting URL (e.g., https://advertools.readthedocs.io/)", 
+        "Enter the starting URL (e.g., https://advertools.readthedocs.io/)",
         "https://advertools.readthedocs.io/",
         help="The crawl will be limited to this domain's hostname."
     )
 
     # 2. Crawl Button
     crawl_button = st.button("Start Crawl and Generate Report 🚀")
-    
+
     # 3. Execution Logic
     if crawl_button and domain:
         # Clear existing cache data related to the function before starting a new crawl
-        st.cache_data.clear() 
+        st.cache_data.clear()
 
         with st.spinner("Crawling in progress... Please wait."):
             df_results = run_crawler_df(domain)
-        
+
         if df_results is not None and not df_results.empty:
             st.success(f"Crawl completed successfully. Found {len(df_results)} URLs.")
-            
+
             # Filter the DataFrame to show only URL and status code
             report_df = df_results[['url', 'status']].copy()
             report_df.rename(columns={'url': 'URL', 'status': 'HTTP Status Code'}, inplace=True)
-            
+
             # 4. Display Results
-            
+
             st.subheader("HTTP Status Code Breakdown")
-            
+
             # Status Code Summary
             status_summary = report_df['HTTP Status Code'].value_counts().reset_index()
             status_summary.columns = ['HTTP Status Code', 'Count']
-            
+
             # Add a description for common status codes
             def get_status_description(code):
                 descriptions = {
@@ -122,15 +122,16 @@ def main():
                     500: 'Internal Server Error',
                 }
                 return descriptions.get(code, 'Other')
-            
+
             status_summary['Description'] = status_summary['HTTP Status Code'].apply(get_status_description)
-            
+
             st.dataframe(
-                status_summary, 
+                status_summary,
                 use_container_width=True,
                 column_config={
                     "HTTP Status Code": st.column_config.NumberColumn(format="%d"),
-                    "Count": st.column_config.ProgressColumn("Count", format="%f", max_value=status_summary['Count'].max()),
+                    # FIX: Explicitly convert max_value to Python int to make it JSON serializable
+                    "Count": st.column_config.ProgressColumn("Count", format="%f", max_value=int(status_summary['Count'].max())),
                 }
             )
 
