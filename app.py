@@ -1,21 +1,23 @@
 import streamlit as st
 import advertools as adv
 import pandas as pd
+import tempfile
+import os # Added for file operations
 
 # Set the page configuration for a wider layout
 st.set_page_config(layout="wide")
 
-# Use st.cache_data to cache the results, which prevents the crawl 
+# Use st.cache_data to cache the results, which prevents the crawl
 # from running again if the user interacts with the app (e.g., changes the URL)
 # unless the input parameters change.
 @st.cache_data(show_spinner=False)
 def run_crawler_df(start_url: str) -> pd.DataFrame | None:
     """
     Runs the advertools web crawler on the provided starting URL.
-    The crawl is now unlimited by page count or depth, running until all 
-    internal pages are found or it hits a timeout/resource limit.
+    Refactored from adv.crawl_df to adv.crawl and adv.read_jsonl to fix
+    the 'attribute not found' error by handling the crawl output file manually.
     """
-    
+
     # Ensure the URL is valid
     if not start_url.startswith(('http://', 'https://')):
         st.error("Invalid URL: Please include 'http://' or 'https://'.")
@@ -26,21 +28,40 @@ def run_crawler_df(start_url: str) -> pd.DataFrame | None:
         f"**WARNING:** The crawl is now **unlimited** in page count and depth, limited only to the **same hostname**. This may take a long time or consume significant resources for large websites. The app respects the domain's `robots.txt` file."
     )
 
+    # Initialize variables for cleanup
+    temp_filepath = None
+    df = None
+
     try:
-        # adv.crawl_df crawls and returns a DataFrame directly.
-        # 'same_netloc': True ensures we only follow internal links (on the same domain).
-        # CLOSESPIDER_PAGECOUNT and DEPTH_LIMIT are removed to allow an unlimited crawl.
-        df = adv.crawl_df(
+        # 1. Create a unique temporary file path for the crawl output
+        with tempfile.NamedTemporaryFile(suffix='.jsonl', delete=False) as tmp:
+            temp_filepath = tmp.name
+
+        # 2. Run the crawl, writing results to the temporary file
+        # adv.crawl is the standard function that writes to disk (or tempfile in this case)
+        adv.crawl(
             url_list=[start_url],
+            output_file=temp_filepath,
             settings={
                 'LOG_LEVEL': 'WARNING',
-                'ROBOTSTXT_OBEY': True, # Always respect robots.txt
+                'ROBOTSTXT_OBEY': True,
             }
         )
+
+        # 3. Read the results from the temporary file into a DataFrame
+        df = adv.read_jsonl(temp_filepath)
+
         return df
+
     except Exception as e:
-        st.error(f"An error occurred during crawling. Ensure the URL is correct and accessible. Error: {e}")
+        # Provide a more specific error message based on the reported issue
+        st.error(f"An error occurred during crawling. Please check the URL and your installed advertools version (a required function was missing). Error details: {e}")
         return None
+
+    finally:
+        # 4. Clean up the temporary file regardless of success or failure
+        if temp_filepath and os.path.exists(temp_filepath):
+             os.remove(temp_filepath)
 
 
 def main():
