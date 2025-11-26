@@ -15,7 +15,7 @@ def run_crawler_df(start_url: str) -> pd.DataFrame | None:
     """
     Runs the advertools web crawler on the provided starting URL.
     Refactored the crawl call to pass settings directly as keyword arguments
-    and removed the incompatible 'LOG_LEVEL' argument.
+    and removed the incompatible 'LOG_LEVEL' and 'ROBOTSTXT_OBEY' arguments.
     """
 
     # Ensure the URL is valid
@@ -25,7 +25,7 @@ def run_crawler_df(start_url: str) -> pd.DataFrame | None:
 
     st.warning(
         f"Starting unlimited crawl for: `{start_url}`.\n\n"
-        f"**WARNING:** The crawl is now **unlimited** in page count and depth, limited only to the **same hostname**. This may take a long time or consume significant resources for large websites. The app respects the domain's `robots.txt` file."
+        f"**WARNING:** The crawl is now **unlimited** in page count and depth, limited only to the **same hostname**. This may take a long time or consume significant resources for large websites. The crawl relies on the default settings of `advertools` to respect `robots.txt`."
     )
 
     # Initialize variables for cleanup
@@ -38,12 +38,10 @@ def run_crawler_df(start_url: str) -> pd.DataFrame | None:
             temp_filepath = tmp.name
 
         # 2. Run the crawl, writing results to the temporary file
-        # FIX: Removed LOG_LEVEL as it is incompatible in some advertools versions
-        # when passing arguments directly.
+        # FIX: Removed ROBOTSTXT_OBEY as it is incompatible in this version
         adv.crawl(
             url_list=[start_url],
             output_file=temp_filepath,
-            ROBOTSTXT_OBEY=True, # Passed directly
         )
 
         # 3. Read the results from the temporary file into a DataFrame
