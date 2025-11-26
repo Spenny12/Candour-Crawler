@@ -15,7 +15,7 @@ def run_crawler_df(start_url: str) -> pd.DataFrame | None:
     """
     Runs the advertools web crawler on the provided starting URL.
     Refactored the crawl call to pass settings directly as keyword arguments
-    to fix the 'unexpected keyword argument settings' error.
+    and removed the incompatible 'LOG_LEVEL' argument.
     """
 
     # Ensure the URL is valid
@@ -38,11 +38,11 @@ def run_crawler_df(start_url: str) -> pd.DataFrame | None:
             temp_filepath = tmp.name
 
         # 2. Run the crawl, writing results to the temporary file
-        # FIX: Pass settings directly as keyword arguments to adv.crawl
+        # FIX: Removed LOG_LEVEL as it is incompatible in some advertools versions
+        # when passing arguments directly.
         adv.crawl(
             url_list=[start_url],
             output_file=temp_filepath,
-            LOG_LEVEL='WARNING', # Passed directly
             ROBOTSTXT_OBEY=True, # Passed directly
         )
 
