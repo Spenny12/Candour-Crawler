@@ -26,7 +26,7 @@ def run_crawler_df(start_url: str) -> pd.DataFrame | None:
 
     st.warning(
         f"Starting unlimited crawl for: `{start_url}`.\n\n"
-        f"**WARNING:** The crawl is now **unlimited** in page count and depth, and it is configured to **follow internal links** on the same hostname. This may take a long time or consume significant resources for large websites. The crawl relies on the default settings of `advertools` to respect `robots.txt`."
+        f"**WARNING:** The crawl is now **unlimited** in page count and depth, and it is configured to **follow internal links**. Since the `restrict_to_hostname` argument is not supported in your environment, the crawler will rely on default Scrapy settings, which usually restrict the crawl to the hostname of the starting URL. This may take a long time or consume significant resources for large websites. The crawl relies on the default settings of `advertools` to respect `robots.txt`."
     )
 
     # Initialize variables for cleanup
@@ -39,13 +39,11 @@ def run_crawler_df(start_url: str) -> pd.DataFrame | None:
             temp_filepath = tmp.name
 
         # 2. Run the crawl, writing results to the temporary file
-        # FIX: Added follow_links=True and restrict_to_hostname=True
-        # to enable deep internal crawling.
+        # FIX: Removed the incompatible 'restrict_to_hostname=True' argument.
         adv.crawl(
             url_list=[start_url],
             output_file=temp_filepath,
-            follow_links=True,
-            restrict_to_hostname=True
+            follow_links=True
         )
 
         # 3. Read the results from the temporary file into a DataFrame manually
