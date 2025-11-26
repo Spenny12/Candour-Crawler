@@ -2,21 +2,35 @@ import streamlit as st
 import advertools as adv
 import pandas as pd
 import tempfile
-import os # Added for file operations
-import json # New import for manual JSONL parsing
+import os
+import json
+import multiprocessing # NEW: For running the crawl in a separate process
+import time # NEW: For polling the output file
 
 # Set the page configuration for a wider layout
 st.set_page_config(layout="wide")
 
-# Use st.cache_data to cache the results, which prevents the crawl
-# from running again if the user interacts with the app (e.g., changes the URL)
-# unless the input parameters change.
-@st.cache_data(show_spinner=False)
+
+# New function to run the blocking crawl in a separate process.
+# This target function prevents the main Streamlit thread from blocking.
+def _run_adv_crawl_target(start_url: str, temp_filepath: str):
+    """Target function for the multiprocessing Process."""
+    try:
+        adv.crawl(
+            url_list=[start_url],
+            output_file=temp_filepath,
+            follow_links=True
+        )
+    except Exception as e:
+        # In a real-time scenario, errors in the child process are logged
+        # and the main process will detect the failure when the file is incomplete.
+        print(f"Crawler process failed with error: {e}")
+
+# The main processing function - removed @st.cache_data as it is incompatible with live updates
 def run_crawler_df(start_url: str) -> pd.DataFrame | None:
     """
-    Runs the advertools web crawler on the provided starting URL.
-    This version manually reads the JSON Lines output file into a DataFrame
-    to bypass incompatible library functions and explicitly enables link following.
+    Runs the advertools web crawler in a background process and monitors
+    the output file to provide live updates to the Streamlit UI.
     """
 
     # Ensure the URL is valid
@@ -25,52 +39,88 @@ def run_crawler_df(start_url: str) -> pd.DataFrame | None:
         return None
 
     st.warning(
-        f"Starting unlimited crawl for: `{start_url}`.\n\n"
-        f"**WARNING:** The crawl is now **unlimited** in page count and depth, and it is configured to **follow internal links**. Since the `restrict_to_hostname` argument is not supported in your environment, the crawler will rely on default Scrapy settings, which usually restrict the crawl to the hostname of the starting URL. This may take a long time or consume significant resources for large websites. The crawl relies on the default settings of `advertools` to respect `robots.txt`."
+        f"Starting live, unlimited crawl for: `{start_url}`.\n\n"
+        f"**WARNING:** The crawl is now **unlimited** in page count and depth, and it is configured to **follow internal links**. It relies on default settings to restrict to the hostname and respect `robots.txt`."
     )
 
     # Initialize variables for cleanup
     temp_filepath = None
     df = None
 
+    # 1. Setup the temporary file path
+    with tempfile.NamedTemporaryFile(suffix='.jsonl', delete=False) as tmp:
+        temp_filepath = tmp.name
+
+    # 2. Setup Streamlit placeholder for live updates
+    live_report_placeholder = st.empty()
+
+    # 3. Start the crawl process
+    crawl_process = multiprocessing.Process(
+        target=_run_adv_crawl_target,
+        args=(start_url, temp_filepath)
+    )
+    crawl_process.start()
+
+    st.subheader("Live Crawl Status")
+
+    # 4. Monitoring Loop: Runs until the crawl process is finished
+    while crawl_process.is_alive():
+        # Check and update every 3 seconds
+        time.sleep(3)
+
+        try:
+            data = []
+            if os.path.exists(temp_filepath) and os.path.getsize(temp_filepath) > 0:
+                with open(temp_filepath, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        data.append(json.loads(line))
+
+                # Update the display
+                if data:
+                    current_df = pd.DataFrame(data)
+
+                    # Prepare the data for the live view
+                    live_report_df = current_df[['url', 'status']].copy()
+                    live_report_df.rename(columns={'url': 'URL', 'status': 'HTTP Status Code'}, inplace=True)
+
+                    # Use the placeholder to update the UI section
+                    with live_report_placeholder.container():
+                        st.write(f"**Pages Crawled So Far:** {len(live_report_df)}")
+                        st.dataframe(live_report_df, use_container_width=True, hide_index=True)
+
+        except Exception as e:
+            # Safely handle file access errors while the file is actively being written
+            print(f"Error reading partial file: {e}")
+            pass
+
+    # Wait for the process to fully terminate
+    crawl_process.join()
+
+    # 5. After the process finishes, read the final results
     try:
-        # 1. Create a unique temporary file path for the crawl output
-        with tempfile.NamedTemporaryFile(suffix='.jsonl', delete=False) as tmp:
-            temp_filepath = tmp.name
+        if os.path.exists(temp_filepath) and os.path.getsize(temp_filepath) > 0:
+            data = []
+            with open(temp_filepath, 'r', encoding='utf-8') as f:
+                for line in f:
+                    data.append(json.loads(line))
 
-        # 2. Run the crawl, writing results to the temporary file
-        # FIX: Removed the incompatible 'restrict_to_hostname=True' argument.
-        adv.crawl(
-            url_list=[start_url],
-            output_file=temp_filepath,
-            follow_links=True
-        )
+            df = pd.DataFrame(data)
 
-        # 3. Read the results from the temporary file into a DataFrame manually
-        # FIX: Replaced adv.read_jsonl with manual reading using the json module.
-        data = []
-        with open(temp_filepath, 'r', encoding='utf-8') as f:
-            for line in f:
-                # Each line is a complete JSON object
-                data.append(json.loads(line))
+            # Check for empty or failed crawl data
+            if df.empty or 'status' not in df.columns or (df['status'] == 0).all():
+                 return pd.DataFrame()
 
-        df = pd.DataFrame(data)
-
-        # Check if the DataFrame is empty or only contains status 0 (unreachable/error)
-        if df.empty or 'status' not in df.columns or (df['status'] == 0).all():
-             # If the DataFrame is empty or contains only non-HTTP responses,
-             # return an empty DataFrame to trigger the warning message in main()
-             return pd.DataFrame()
-
-        return df
+            return df
+        else:
+             st.error("The crawler finished but produced no output file. Check terminal logs for process errors.")
+             return None
 
     except Exception as e:
-        # Provide a more specific error message based on the reported issue
-        st.error(f"An error occurred during crawling. Please check the URL and your installed advertools version. Error details: {e}")
+        st.error(f"An error occurred while finalizing the report. Error: {e}")
         return None
 
     finally:
-        # 4. Clean up the temporary file regardless of success or failure
+        # 6. Cleanup the temporary file regardless of success or failure
         if temp_filepath and os.path.exists(temp_filepath):
              os.remove(temp_filepath)
 
@@ -93,12 +143,11 @@ def main():
 
     # 3. Execution Logic
     if crawl_button and domain:
-        # Clear existing cache data related to the function before starting a new crawl
-        st.cache_data.clear()
-
-        with st.spinner("Crawling in progress... Please wait."):
+        # This will now start the live monitoring process
+        with st.spinner("Crawl initiated. Starting process and monitoring output..."):
             df_results = run_crawler_df(domain)
 
+        # After the live monitoring loop finishes, display the final, structured report
         if df_results is not None and not df_results.empty:
             st.success(f"Crawl completed successfully. Found {len(df_results)} URLs.")
 
@@ -106,9 +155,9 @@ def main():
             report_df = df_results[['url', 'status']].copy()
             report_df.rename(columns={'url': 'URL', 'status': 'HTTP Status Code'}, inplace=True)
 
-            # 4. Display Results
+            # 4. Display Final Results
 
-            st.subheader("HTTP Status Code Breakdown")
+            st.subheader("Final HTTP Status Code Breakdown")
 
             # Status Code Summary
             status_summary = report_df['HTTP Status Code'].value_counts().reset_index()
@@ -132,12 +181,11 @@ def main():
                 use_container_width=True,
                 column_config={
                     "HTTP Status Code": st.column_config.NumberColumn(format="%d"),
-                    # FIX: Explicitly convert max_value to Python int to make it JSON serializable
                     "Count": st.column_config.ProgressColumn("Count", format="%f", max_value=int(status_summary['Count'].max())),
                 }
             )
 
-            st.subheader("Detailed URL Report")
+            st.subheader("Final Detailed URL Report")
             st.dataframe(
                 report_df, 
                 use_container_width=True,
