@@ -14,8 +14,8 @@ st.set_page_config(layout="wide")
 def run_crawler_df(start_url: str) -> pd.DataFrame | None:
     """
     Runs the advertools web crawler on the provided starting URL.
-    Refactored from adv.crawl_df to adv.crawl and adv.read_jsonl to fix
-    the 'attribute not found' error by handling the crawl output file manually.
+    Refactored the crawl call to pass settings directly as keyword arguments
+    to fix the 'unexpected keyword argument settings' error.
     """
 
     # Ensure the URL is valid
@@ -38,14 +38,12 @@ def run_crawler_df(start_url: str) -> pd.DataFrame | None:
             temp_filepath = tmp.name
 
         # 2. Run the crawl, writing results to the temporary file
-        # adv.crawl is the standard function that writes to disk (or tempfile in this case)
+        # FIX: Pass settings directly as keyword arguments to adv.crawl
         adv.crawl(
             url_list=[start_url],
             output_file=temp_filepath,
-            settings={
-                'LOG_LEVEL': 'WARNING',
-                'ROBOTSTXT_OBEY': True,
-            }
+            LOG_LEVEL='WARNING', # Passed directly
+            ROBOTSTXT_OBEY=True, # Passed directly
         )
 
         # 3. Read the results from the temporary file into a DataFrame
@@ -55,7 +53,7 @@ def run_crawler_df(start_url: str) -> pd.DataFrame | None:
 
     except Exception as e:
         # Provide a more specific error message based on the reported issue
-        st.error(f"An error occurred during crawling. Please check the URL and your installed advertools version (a required function was missing). Error details: {e}")
+        st.error(f"An error occurred during crawling. Please check the URL and your installed advertools version. Error details: {e}")
         return None
 
     finally:
