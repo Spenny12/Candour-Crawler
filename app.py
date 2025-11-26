@@ -3,6 +3,7 @@ import advertools as adv
 import pandas as pd
 import tempfile
 import os # Added for file operations
+import json # New import for manual JSONL parsing
 
 # Set the page configuration for a wider layout
 st.set_page_config(layout="wide")
@@ -14,8 +15,8 @@ st.set_page_config(layout="wide")
 def run_crawler_df(start_url: str) -> pd.DataFrame | None:
     """
     Runs the advertools web crawler on the provided starting URL.
-    Refactored the crawl call to pass settings directly as keyword arguments
-    and removed the incompatible 'LOG_LEVEL' and 'ROBOTSTXT_OBEY' arguments.
+    This version manually reads the JSON Lines output file into a DataFrame
+    to bypass incompatible library functions.
     """
 
     # Ensure the URL is valid
@@ -38,14 +39,26 @@ def run_crawler_df(start_url: str) -> pd.DataFrame | None:
             temp_filepath = tmp.name
 
         # 2. Run the crawl, writing results to the temporary file
-        # FIX: Removed ROBOTSTXT_OBEY as it is incompatible in this version
         adv.crawl(
             url_list=[start_url],
             output_file=temp_filepath,
         )
 
-        # 3. Read the results from the temporary file into a DataFrame
-        df = adv.read_jsonl(temp_filepath)
+        # 3. Read the results from the temporary file into a DataFrame manually
+        # FIX: Replaced adv.read_jsonl with manual reading using the json module.
+        data = []
+        with open(temp_filepath, 'r', encoding='utf-8') as f:
+            for line in f:
+                # Each line is a complete JSON object
+                data.append(json.loads(line))
+
+        df = pd.DataFrame(data)
+
+        # Check if the DataFrame is empty or only contains status 0 (unreachable/error)
+        if df.empty or 'status' not in df.columns or (df['status'] == 0).all():
+             # If the DataFrame is empty or contains only non-HTTP responses,
+             # return an empty DataFrame to trigger the warning message in main()
+             return pd.DataFrame()
 
         return df
 
